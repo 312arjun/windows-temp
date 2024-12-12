@@ -1,0 +1,192 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+	SPDX-License-Identifier: GPL-2.0
+
+	Copyright (C) 2019-2022 WireGuard LLC. All Rights Reserved.
+-->
+
+<?if $(var.WIREGUARD_PLATFORM) = "amd64" Or $(var.WIREGUARD_PLATFORM) = "arm64"?>
+	<?define PlatformProgramFilesFolder = "ProgramFiles64Folder"?>
+<?else?>
+	<?define PlatformProgramFilesFolder = "ProgramFilesFolder"?>
+<?endif?>
+<?if $(var.WIREGUARD_PLATFORM) = "amd64"?>
+	<?define UpgradeCode = "f16a1987-4d8e-4504-8302-856ba8919c7c"?>
+<?elseif $(var.WIREGUARD_PLATFORM) = "x86"?>
+	<?define UpgradeCode = "f596ed33-cd0a-4c95-82a3-9a8c45b867d7"?>
+<?elseif $(var.WIREGUARD_PLATFORM) = "arm"?>
+	<?define UpgradeCode = "3f3a2f52-d999-4c88-8df0-702f5be76733"?>
+<?elseif $(var.WIREGUARD_PLATFORM) = "arm64"?>
+	<?define UpgradeCode = "831a6a57-0f8a-48ed-ba7a-1364961002b1"?>
+<?else?>
+	<?error Unknown platform ?>
+<?endif?>
+
+<?define ResourcesDir = "custom/"?>
+
+<Wix xmlns="http://schemas.microsoft.com/wix/2006/wi">
+	<Product
+		Id="*"
+		Name="Eclipz Agent $(var.WIREGUARD_VERSION)"
+		Language="1033"
+		Version="$(var.WIREGUARD_VERSION)"
+		Manufacturer="Eclipz, Inc."
+		UpgradeCode="$(var.UpgradeCode)">
+		<Package
+			InstallerVersion="500"
+			Compressed="yes"
+			InstallScope="perMachine"
+			Description="Eclipz Agent: Fast, Modern, Secure VPN Tunnel"
+			ReadOnly="yes" />
+
+		<MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+		<Icon Id="eclipz.ico" SourceFile="..\ui\icon\eclipz.ico" />
+		<Binary Id="customactions.dll" SourceFile="$(var.WIREGUARD_PLATFORM)\customactions.dll" />
+
+		<Property Id="ARPPRODUCTICON" Value="eclipz.ico" />
+		<Property Id="ARPURLINFOABOUT" Value="https://www.eclipz.com/" />
+		<!-- <Property Id="ARPNOMODIFY" Value="yes" /> -->
+		<Property Id="DISABLEADVTSHORTCUTS" Value="yes" />
+		<Property Id="DISABLEROLLBACK" Value="yes" />
+		<Property Id="MSIDISABLERMRESTART" Value="1" />
+		<Property Id="MSIRMSHUTDOWN" Value="1" />
+
+		<!--
+			Upgrading
+		-->
+		<MajorUpgrade
+			AllowDowngrades="no"
+			AllowSameVersionUpgrades="yes"
+			DowngradeErrorMessage="A newer version of [ProductName] is already installed."
+			Schedule="afterInstallExecute"
+			IgnoreRemoveFailure="yes" />
+
+		<!--
+			Folders
+		-->
+		<Directory Id="TARGETDIR" Name="SourceDir">
+			<Directory Id="$(var.PlatformProgramFilesFolder)">
+				<Directory Id="EclipzFolder" Name="Eclipz">
+					<Directory Id="ImgFolder" Name="img" />
+				</Directory>
+			</Directory>
+			<Directory Id="ProgramMenuFolder" />
+		</Directory>
+
+		<!--
+			Components
+		-->
+		<ComponentGroup Id="EclipzComponents">
+			<Component Directory="EclipzFolder" Id="EclipzExecutable" Guid="914f93ea-1df5-403b-9e5b-5780e92e881b">
+				<File Id="Exlipz.exe" Source="..\$(var.WIREGUARD_PLATFORM)\eclipz.exe" KeyPath="yes">
+					<Shortcut Id="EclipzStartMenuShortcut" Directory="ProgramMenuFolder" Name="Eclipz Agent 2.0.0" Description="Eclipz Agent: Fast, Modern, Secure VPN Tunnel" WorkingDirectory="EclipzFolder" Advertise="yes" />
+				</File>
+				<ServiceControl Id="DummyService.509388a4-7d6c-4ae8-95f4-d211221445c2" Name="DummyService.509388a4-7d6c-4ae8-95f4-d211221445c2" /><!-- A dummy to make WiX create ServiceControl table for us. -->
+			</Component>
+			<Component Directory="EclipzFolder" Id="WgExecutable" Guid="0489ca5c-799c-4bee-877a-9fe89768028d">
+				<File Source="..\$(var.WIREGUARD_PLATFORM)\wg.exe" KeyPath="yes" />
+				<File Source="..\cachain.pem" />
+			</Component>
+			<Component Directory="ImgFolder" Id="Images" Guid="0aea6118-4608-447b-bcb0-10a16db04646">
+				<File Source="..\ui\img\01.bmp" KeyPath='yes' />
+				<File Source="..\ui\img\02.bmp" />
+				<File Source="..\ui\img\03.bmp" />
+				<File Source="..\ui\img\04.bmp" />
+				<File Source="..\ui\img\05.bmp" />
+				<File Source="..\ui\img\Banner.bmp" />
+			</Component>
+		</ComponentGroup>
+
+		<!--
+			Features
+		-->
+		<Feature Id="EclipzFeature" Title="Eclipz" Level="1">
+			<ComponentGroupRef Id="EclipzComponents" />
+		</Feature>
+
+		<!--
+			Abort early if running under Wow64
+		-->
+		<CustomAction Id="CheckWow64" BinaryKey="customactions.dll" DllEntry="CheckWow64" />
+		<InstallExecuteSequence>
+			<Custom Action="CheckWow64" After="FindRelatedProducts">NOT REMOVE</Custom>
+		</InstallExecuteSequence>
+
+		<!--
+			Evaluate WireGuard services and populate ServiceControl table
+		-->
+		<CustomAction Id="EvaluateWireGuardServices" BinaryKey="customactions.dll" DllEntry="EvaluateWireGuardServices" />
+		<InstallExecuteSequence>
+			<Custom Action="EvaluateWireGuardServices" After="FindRelatedProducts" />
+		</InstallExecuteSequence>
+
+		<!--
+			Launch Eclipz.exe on product reconfiguration (starting same MSI again)
+		-->
+		<CustomAction Id="LaunchApplicationAndAbort" BinaryKey="customactions.dll" DllEntry="LaunchApplicationAndAbort" />
+		<InstallExecuteSequence>
+			<Custom Action="LaunchApplicationAndAbort" After="CostFinalize">ProductState=5 AND NOT REMOVE AND NOT DO_NOT_LAUNCH</Custom>
+		</InstallExecuteSequence>
+
+		<!--
+			Evaluate Eclipz components
+		-->
+		<CustomAction Id="EvaluateEclipzComponents" BinaryKey="customactions.dll" DllEntry="EvaluateEclipzComponents" />
+		<InstallExecuteSequence>
+			<Custom Action="EvaluateEclipzComponents" After="ProcessComponents" />
+		</InstallExecuteSequence>
+
+		<!--
+			Kill lingering processes
+		-->
+		<CustomAction Id="KillWireGuardProcesses" BinaryKey="customactions.dll" DllEntry="KillWireGuardProcesses" Execute="deferred" Impersonate="no" />
+		<InstallExecuteSequence>
+			<Custom Action="KillWireGuardProcesses" After="StopServices" />
+		</InstallExecuteSequence>
+
+		<!--
+			Clear out our config folder on uninstall
+		-->
+		<CustomAction Id="RemoveConfigFolder" BinaryKey="customactions.dll" DllEntry="RemoveConfigFolder" Execute="deferred" Impersonate="no" />
+		<InstallExecuteSequence>
+			<Custom Action="RemoveConfigFolder" After="DeleteServices" />
+		</InstallExecuteSequence>
+
+		<!--
+			Clear out our adapters on uninstall
+		-->
+		<CustomAction Id="RemoveAdapters" BinaryKey="customactions.dll" DllEntry="RemoveAdapters" Execute="deferred" Impersonate="no" />
+		<InstallExecuteSequence>
+			<Custom Action="RemoveAdapters" Before="RemoveFiles" />
+		</InstallExecuteSequence>
+
+		<!--
+			Launch wireguard.exe after setup complete
+		-->
+		<!-- <CustomAction Id="LaunchApplication" HideTarget="yes" Impersonate="no" Execute="deferred" FileKey="eclipz.exe" ExeCommand="" Return="asyncNoWait" />
+		<InstallExecuteSequence>
+			<Custom Action="LaunchApplication" Before="InstallFinalize">(&amp;EclipzFeature = 3) AND NOT DO_NOT_LAUNCH</Custom>
+		</InstallExecuteSequence> -->
+
+		<WixVariable Id="WixUIBannerBmp" Value="$(var.ResourcesDir)Banner.bmp" />
+		<WixVariable Id="WixUIDialogBmp" Value="$(var.ResourcesDir)Background.bmp" />
+		<WixVariable Id="WixUILicenseRtf" Value="$(var.ResourcesDir)license.rtf" />
+
+		<UI>
+			<UIRef Id="WixUI_Minimal" />
+			<Publish Dialog="ExitDialog" 
+				Control="Finish" 
+				Event="DoAction" 
+				Value="LaunchApplication">WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 and NOT Installed</Publish>
+		</UI>
+		<Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Launch Eclipz" />
+	
+		<Property Id="WixShellExecTarget" Value="[#Exlipz.exe]" />
+		<CustomAction Id="LaunchApplication" 
+			BinaryKey="WixCA" 
+			DllEntry="WixShellExec"
+			Impersonate="yes" />
+
+	</Product>
+</Wix>
